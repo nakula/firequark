@@ -689,6 +689,250 @@ this.Element = domplate(Firebug.Rep,
         return elts && elts.length ? elts[0] : null;
     },
 
+		/************** quarkruby.com **********************/
+		removeNodeAsParentQ: function(elt, context)
+		{
+		    context.sourceCache.setCssSelectorParentNode(context.window.location.href,null);
+		},
+
+		markNodeAsParentQ: function(elt, context)
+		{
+		    context.sourceCache.setCssSelectorParentNode(context.window.location.href,elt);
+		},
+
+		convertXpathToCss: function(elt, context)
+		{
+		    var xpath = getElementXPath(elt);
+		    var xpath1 = "";
+		    var context_node = context.sourceCache.getCssSelectorParentNode(context.window.location.href);
+		    if (context_node != null) {
+		      xpath1 = getElementXPath(context_node);
+		      var nxpath = xpath.substring(xpath1.length+1,xpath.length);
+		      nxpath = nxpath.replace(/\//g,">").replace(/\[([0-9]+)\]/g,":nth-of-type($1)");
+		      //nxpath = nxpath(1,nxpath.length);
+		      xpath = nxpath;
+		    }
+		    else {
+		      var nxpath = xpath.replace(/\//g,">").replace(/\[([0-9]+)\]/g,":nth-of-type($1)");
+		      xpath = nxpath.substring(1,nxpath.length);
+		    }
+		    return xpath;
+		},
+
+		/***/
+		getElementsBySelectorQ: function(doc, css ,context)
+		{
+		    var xpath = cssToXPath(css);
+		    var context_node = context.sourceCache.getCssSelectorParentNode(context.window.location.href);
+		    if(context_node != null) {
+		      var parentXpath = getElementXPath(context_node);
+		      xpath = parentXpath + xpath;//.substring(1,xpath.length);
+		      /*var nodes = getElementsByXPath(doc, nxpath);
+		      if(nodes!=null && nodes.length!=0) return nodes;
+		      xpath = parentXpath + xpath.substring(1,xpath.length);*/
+		    }
+		    return getElementsByXPath(doc, xpath);
+		},
+
+		getAttributeValueQ: function(elt, attr) 
+		{
+		return elt.attributes.getNamedItem(attr);
+		},
+
+		/** check if this is the best css selector
+
+		* Arguments
+		elt = element to work onto DOM Node
+		required_min = how many such elements exist on page
+		prev_css_selector = what to append to current css selector, (any parent or sibling css selector value)
+		context = which context this is being executed
+
+		* Methodology
+		* Try with the following options
+		nodeName
+		nodeName.id
+		nodeName.classvalues for each of the classvalues
+		nodeName.other attributes for each of the attribute (except "style","href","target","src")
+
+		* TODO: add multiple attribute selection
+
+		* returns the cssSelector closest to the required_min value and the corresponding number of elements found
+		*/
+		checkCssSelector: function(elt, required_min, prev_css_selector,context)
+		{
+			var doc = context.window.document;
+			var chosen_min = 1000;
+			var chosen_selector = "";
+			var selector = "";
+
+
+			var class_selectors = [""];
+			if(elt.attributes.getNamedItem("class") != null) {
+			 class_selectors = elt.attributes.getNamedItem("class").nodeValue.split(' ');
+			}
+
+			/** tagname, id, class, other attributes = 1 + 1 + class_selectors.length-1 + 1 */
+		  for(var i= -(3+class_selectors.length-1) ; i<elt.attributes.length; i++) {
+			// check if "tagname" works.
+				if(i == -(3+class_selectors.length-1))
+					selector = elt.nodeName.toLowerCase();
+
+					// check if the "id" tag works
+		    else if(i == -(2+class_selectors.length-1)) {
+
+	        /** IMPORTANT WARNING:: if some node has been marked as parent, then don't use id's for getting selectors */
+	        var context_node = context.sourceCache.getCssSelectorParentNode(context.window.location.href);
+	        if(context_node!=null) continue;
+
+	        if(elt.attributes.getNamedItem("id")!=null) {
+	          var id_value = elt.attributes.getNamedItem("id").nodeValue;
+	          if(id_value.replace(/[a-zA-Z0-9_]/g,"")=="")
+	            selector = elt.nodeName.toLowerCase() + "#" + id_value;
+	          else
+	            selector = elt.nodeName.toLowerCase() + "[id='" + id_value + "']";
+	        }
+	        else
+	          continue;
+	      }  
+
+				// check if the class attribute works
+				else if(i < 0 && i >= -(1+class_selectors.length-1)) {
+				  if(elt.attributes.getNamedItem("class")!=null) {
+				    //var class_value = elt.attributes.getNamedItem("class").nodeValue;
+				    var class_value = class_selectors[class_selectors.length+i];
+				    if(class_value.replace(/[a-zA-Z0-9_-]/g,"")=="")
+				      selector = elt.nodeName.toLowerCase() + "." + class_value;
+				    else
+				      selector = elt.nodeName.toLowerCase() + "[class='" + class_value + "']";
+				  }
+				  else
+				    continue;
+				}  
+
+				// check for the other attributes
+				else {
+				  var dont_check_for_attributes = ["class","id","style","href","target","src"];
+				  if(dont_check_for_attributes.indexOf(elt.attributes[i].nodeName)!=-1) continue;
+				  selector = elt.nodeName.toLowerCase() + "[" + elt.attributes[i].nodeName + "='" + elt.attributes[i].nodeValue + "']";
+				}
+				selector = selector + prev_css_selector;
+				var nodes = this.getElementsBySelectorQ(doc, selector, context);
+				if(nodes.length == required_min) return [selector, required_min];
+				if(nodes.length < chosen_min && nodes.length>required_min) {
+				  chosen_min = nodes.length;
+				  chosen_selector = selector;
+				}
+				else if(nodes.length == chosen_min && nodes.length > required_min) {
+				  if(i>=0 && (elt.attributes[i].nodeName=="class" || elt.attributes[i].nodeName=="id")) {
+				    chosen_min = nodes.length;
+				    chosen_selector = selector;
+				  }
+				}
+			}
+			return [chosen_selector,chosen_min];
+		},
+
+		/**
+		* QuarRuby - FireQuark additions
+		* This is the main function called when doing copyCssSelector
+		* 
+		* ask_min - if copyCssSelector is called, then user will be prompted for number of such elements that exist on page.
+		* context - is variable in which context this is being executed,
+		* elt - element on which it is being called.
+
+		* Methodology ..
+		* I DONT KNOW what the hell is going on here. :(. thats why one should document its code.
+		* while(true) do
+		checkCssSelector(elt)
+		checkCssSelector(previous_sibling+elt)
+		checkCssSelector(parent_element>elt)
+		* end
+
+		* If matching is found
+		* 	this may not be best css selector, try removing elements in between with spaace for eg.
+		div.help>a>img could possibly be written as div.help img
+		* If matching is not found..
+		return the xpath of this element replacing div[i] with div:nth-of-type(i)
+*/
+		copyCssSelectorQ: function(elt,context,ask_min)
+		{
+		    //if(this.UniqueCssSelector_MarkedParent == null) this.UniqueCssSelector_MarkedParent = context.window.document;
+			var required_minimum = 1;
+			var orig_elt = elt;
+			if(ask_min!=null) {
+			  required_minimum = prompt("Please enter the count of elements you need for current css selector");
+			  if (required_minimum == null) required_minimum = 1;
+			}
+			var minimum = 100;
+			var css_selector = "";
+			var get_min = 0;
+			var found_a_match = false;
+			while(elt != null) {
+			  var temp = this.checkCssSelector(elt,required_minimum,css_selector,context);
+			  css_selector = temp[0];
+			  get_min = temp[1];
+			  if(get_min==required_minimum) {
+			    found_a_match = true;
+			    break;
+			  }
+			  if(get_min < minimum) minimum = get_min;
+
+			  var temp_elt = elt;
+			  while(temp_elt.previousSibling!=null) {
+			    if(temp_elt.previousSibling.nodeType == context.window.document.body.ELEMENT_NODE) break;
+			    temp_elt = temp_elt.previousSibling;
+			  }
+				if(temp_elt!=null && temp_elt.previousSibling!=null) {
+				  elt = temp_elt.previousSibling;
+
+				  if(elt != null) {
+				    temp = this.checkCssSelector(elt,required_minimum,"+"+css_selector,context);
+				    get_min = temp[1];
+				    if(get_min == required_minimum) {
+				      css_selector = temp[0];
+				      found_a_match = true;
+				      break;
+				    }
+				  }
+				}
+				css_selector = ">" + css_selector;
+				elt = elt.parentNode;
+				if(elt.nodeName == "HTML") break;
+				}
+				if(found_a_match==true) {
+				  var sub_css_selectors = css_selector.replace(/\s/g,"").split('>');
+				  var new_css_selector = "";
+				  for(var i=sub_css_selectors.length-1; i>0 && sub_css_selectors.length>2; i--) {
+				    new_css_selector = sub_css_selectors[i] + new_css_selector;
+				    var selector = sub_css_selectors[0] + " " + new_css_selector;
+				    var nodes = this.getElementsBySelectorQ(context.window.document, selector, context);
+				    if(nodes.length == required_minimum) {
+				      css_selector = selector;
+				      found_a_match = true;
+				      break;
+				    }
+				    new_css_selector = ">" + new_css_selector;
+				    //FIXME:
+				  }
+				}
+				else {
+				  if(required_minimum==1)
+				    css_selector = this.convertXpathToCss(orig_elt,context);
+				  else
+				    css_selector = null;
+				  if(css_selector != null) {
+				    var temp = css_selector.replace(/nth-of-type\(\d+\)/g,"$");
+				    if(temp[temp.length-1]!='$') css_selector += ":nth-of-type(1)";
+				    css_selector = css_selector.replace(/>tbody>/g," ");
+				  }
+				}
+			copyToClipboard(css_selector);
+		},
+
+/*
+		* ************* quarkruby.com ********************* */
+
+
     // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
     className: "element",
@@ -739,6 +983,11 @@ this.Element = domplate(Firebug.Rep,
             {label: "CopyInnerHTML", command: bindFixed(this.copyInnerHTML, this, elt) },
             {label: "CopyXPath", command: bindFixed(this.copyXPath, this, elt) },
             "-",
+						{label: "MarkNodeAsParent", command: bindFixed(this.markNodeAsParentQ, this, elt, context) },
+						{label: "RemoveNodeAsParent", command: bindFixed(this.removeNodeAsParentQ, this, elt, context) },
+						{label: "CopyCssSelector", command: bindFixed(this.copyCssSelectorQ, this, elt, context,1) },
+						{label: "CopyUniqueCssSelector", command: bindFixed(this.copyCssSelectorQ, this, elt, context,null) },
+						"-",
             {label: "ShowEventsInConsole", type: "checkbox", checked: monitored,
              command: bindFixed(toggleMonitorEvents, FBL, elt, null, monitored, context) },
             "-",

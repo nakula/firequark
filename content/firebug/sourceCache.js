@@ -30,6 +30,7 @@ Firebug.SourceCache = function(context)
 {
     this.context = context;
     this.cache = {};
+		this.cssSelectorParentNodeStorage = {};
 };
 
 Firebug.SourceCache.prototype = extend(new Firebug.Listener(),
@@ -221,7 +222,17 @@ Firebug.SourceCache.prototype = extend(new Firebug.Listener(),
         }
         else
             return "(no source for "+url+")";
-    }
+		},
+
+		setCssSelectorParentNode: function(url, elt)
+		{
+    	this.cssSelectorParentNodeStorage[url] = elt;
+		},
+		
+		getCssSelectorParentNode: function(url)
+		{
+    	return this.cssSelectorParentNodeStorage[url];
+		}
 });
 
 // xxxHonza getPostText and readPostTextFromRequest are copied from
